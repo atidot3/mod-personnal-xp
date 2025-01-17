@@ -6,13 +6,12 @@
 #include "ObjectMgr.h"
 #include "Chat.h"
 #include "Player.h"
-#include "Object.h"
 #include "DataMap.h"
 
-class IndividualXPConf : public WorldScript
+class PersonnalXpConf : public WorldScript
 {
 public:
-    IndividualXPConf();
+    PersonnalXpConf();
     void OnBeforeConfigLoad(bool /*reload*/) override;
 };
 
@@ -20,8 +19,8 @@ class PlayerXpRate : public DataMap::Base
 {
 public:
     PlayerXpRate() {}
-    PlayerXpRate(float XPRate) : XPRate(XPRate) {}
-    float XPRate = 1.0f;
+    PlayerXpRate(uint32 XPRate) : XPRate(XPRate) {}
+    uint32 XPRate = 1.0f;
 };
 
 class PersonnalXP : public PlayerScript
@@ -29,7 +28,6 @@ class PersonnalXP : public PlayerScript
 public:
     PersonnalXP();
     void OnLogin(Player* player) override;
-    void OnLogout(Player* player) override;
     void OnGiveXP(Player* player, uint32& amount, Unit* victim, uint8 xpSource) override;
 };
 
@@ -39,15 +37,15 @@ public:
     struct PersonnalXpModule
     {
         bool Enabled, AnnounceModule, AnnounceRatesOnLogin;
-        float MaxRate, DefaultRate;
+        uint32 MaxRate, DefaultRate;
     };
 
     static PersonnalXpMode* instance();
-    IndividualXPConf& GetConf() {return _conf;}
+    PersonnalXpConf& GetConf() {return _conf;}
     PersonnalXpModule& GetModule() {return _mod;}
 
 private:
-    IndividualXPConf  _conf;
+    PersonnalXpConf  _conf;
     PersonnalXpModule _mod;
 };
 

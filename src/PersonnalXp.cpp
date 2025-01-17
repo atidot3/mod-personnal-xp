@@ -5,7 +5,7 @@
 #include "PersonnalXp.h"
 
 #include "ScriptMgr.h"
-#include "GameObjectAI.h"
+#include "CreatureAI.h"
 #include "ScriptedGossip.h"
 
 PersonnalXpMode* PersonnalXpMode::instance()
@@ -14,17 +14,17 @@ PersonnalXpMode* PersonnalXpMode::instance()
     return &instance;
 }
 
-IndividualXPConf::IndividualXPConf() : WorldScript("PersonnalXpConf")
+PersonnalXpConf::PersonnalXpConf() : WorldScript("PersonnalXpConf")
 {
 
 }
-void IndividualXPConf::OnBeforeConfigLoad(bool /*reload*/) /*override*/
+void PersonnalXpConf::OnBeforeConfigLoad(bool /*reload*/) /*override*/
 {
     sPersonnalXpMode->GetModule().Enabled = sConfigMgr->GetOption<bool>("PersonnalXp.Enabled", true);
     sPersonnalXpMode->GetModule().AnnounceModule = sConfigMgr->GetOption<bool>("PersonnalXp.Announce", true);
     sPersonnalXpMode->GetModule().AnnounceRatesOnLogin = sConfigMgr->GetOption<bool>("PersonnalXp.AnnounceRatesOnLogin", true);
-    sPersonnalXpMode->GetModule().MaxRate = sConfigMgr->GetOption<float>("PersonnalXp.MaxXPRate", 5.0f);
-    sPersonnalXpMode->GetModule().DefaultRate = sConfigMgr->GetOption<float>("PersonnalXp.DefaultXPRate", 1.0f);
+    sPersonnalXpMode->GetModule().MaxRate = sConfigMgr->GetOption<float>("PersonnalXp.MaxXPRate", 5);
+    sPersonnalXpMode->GetModule().DefaultRate = sConfigMgr->GetOption<float>("PersonnalXp.DefaultXPRate", 1);
 }
 
 PersonnalXP::PersonnalXP()
@@ -35,16 +35,11 @@ PersonnalXP::PersonnalXP()
 
 void PersonnalXP::OnLogin(Player* player) /*override*/
 {
-    QueryResult result = CharacterDatabase.Query("SELECT `XPRate` FROM `personnalxp` WHERE `CharacterGUID`='{}'", player->GetGUID().GetCounter());
-
-    if (!result)
+    auto personnalRate = player->GetPlayerSetting("PersonnalXP", 0).value;
+    if (personnalRate == 0)
     {
-        player->CustomData.GetDefault<PlayerXpRate>("PersonnalXP")->XPRate = sPersonnalXpMode->GetModule().DefaultRate;
-    }
-    else
-    {
-        Field* fields = result->Fetch();
-        player->CustomData.Set("PersonnalXP", new PlayerXpRate(fields[0].Get<float>()));
+        player->UpdatePlayerSetting("PersonnalXP", 0, sPersonnalXpMode->GetModule().DefaultRate);
+        personnalRate = sPersonnalXpMode->GetModule().DefaultRate;
     }
 
     if (sPersonnalXpMode->GetModule().Enabled)
@@ -58,18 +53,12 @@ void PersonnalXP::OnLogin(Player* player) /*override*/
         // Announce Rates
         if (sPersonnalXpMode->GetModule().AnnounceRatesOnLogin)
         {
-            ChatHandler(player->GetSession()).PSendSysMessage("|cffffffff[XP] Your current XP rate is {}.|r", player->CustomData.GetDefault<PlayerXpRate>("PersonnalXP")->XPRate);
-            ChatHandler(player->GetSession()).PSendSysMessage("|cffffffff[XP] The maximum rate limit is 5.|r", sPersonnalXpMode->GetModule().MaxRate);
+            ChatHandler(player->GetSession()).PSendSysMessage("|cffffffff[XP] Your current XP rate is {}.|r", personnalRate);
+            ChatHandler(player->GetSession()).PSendSysMessage("|cffffffff[XP] The maximum rate limit is {}.|r", sPersonnalXpMode->GetModule().MaxRate);
         }
     }
 }
-void PersonnalXP::OnLogout(Player* player) /*override*/
-{
-    if (PlayerXpRate* data = player->CustomData.Get<PlayerXpRate>("PersonnalXP"))
-    {
-        CharacterDatabase.DirectExecute("REPLACE INTO `personnalxp` (`CharacterGUID`, `XPRate`) VALUES ('{}', '{}');", player->GetGUID().GetCounter(), data->XPRate);
-    }
-}
+
 void PersonnalXP::OnGiveXP(Player* player, uint32& amount, Unit* /*victim*/, uint8 /*xpSource*/) /*override*/
 {
     if (sPersonnalXpMode->GetModule().Enabled)
@@ -81,59 +70,55 @@ void PersonnalXP::OnGiveXP(Player* player, uint32& amount, Unit* /*victim*/, uin
     }
 }
 
-class gobject_personnalxp_modes : public GameObjectScript
+class creature_personnalxp_mode : public CreatureScript
 {
 public:
-    gobject_personnalxp_modes() : GameObjectScript("gobject_personnalxp_modes") { }
-
-    struct gobject_personnalxp_modeAI: GameObjectAI
-    {
-        explicit gobject_personnalxp_modeAI(GameObject* object) : GameObjectAI(object) { };
-    };
-
+    creature_personnalxp_mode() : CreatureScript("creature_personnalxp_mode") { }
 
     //New menu System
-    bool OnGossipHello(Player* player, GameObject* go) override
-    {   
+    bool OnGossipHello(Player* player, Creature* entity) override
+    {
         // Function to add challenge items to the menu
         auto addChallengeMenuItem = [player](const float& rates, const std::string& name)
         {
             AddGossipItemFor(player, GOSSIP_ICON_CHAT, name, 0, rates);
         };
 
-        addChallengeMenuItem(1, "Reset XPRates to 1");
-        addChallengeMenuItem(3, "Set XPRates to 3");
-        addChallengeMenuItem(5, "Set XPRates to 5");
-
+        for (auto index = 0; index < sPersonnalXpMode->GetModule().MaxRate; ++index)
+        {
+            addChallengeMenuItem(index, "Set my xp rates to " + std::to_string(index));
+        }
         // Display the menu
-        SendGossipMenuFor(player, 12669, go->GetGUID());
+        SendGossipMenuFor(player, entity->GetEntry(), entity->GetGUID());
         return true;
     }
 
-    bool OnGossipSelect(Player* player, GameObject* /*go*/, uint32 /*sender*/, uint32 action) override
+    bool OnGossipSelect(Player* player, Creature* /*entity*/, uint32 /*sender*/, uint32 action) override
     {
-        std::vector<uint32> rates = {
-            1, 3, 5
-        };
-        if (action > rates.size())
+        // avoid 0ed entry
+        action = action + 1;
+
+        // safe protection
+        if (action > sPersonnalXpMode->GetModule().MaxRate || action < sPersonnalXpMode->GetModule().DefaultRate)
         {
             return false;
         }
 
         // apply xp rates <action>
-        player->CustomData.GetDefault<PlayerXpRate>("PersonnalXP")->XPRate = action;
+        player->PlayDirectSound(12867);
+        player->UpdatePlayerSetting("PersonnalXP", 0, action);
         ChatHandler(player->GetSession()).PSendSysMessage("[XP] You have updated your XP rate to {}.", action);
+
+        CloseGossipMenuFor(player);
 
         return true;
     }
 
-    GameObjectAI* GetAI(GameObject* object) const override
-    {
-        return new gobject_personnalxp_modeAI(object);
-    }
 };
 
 void AddPersonnalXPScripts()
 {
-    new gobject_personnalxp_modes();
+    new creature_personnalxp_mode();
+    new PersonnalXpConf();
+    new PersonnalXP();
 }
