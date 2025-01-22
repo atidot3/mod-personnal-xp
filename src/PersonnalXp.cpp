@@ -63,9 +63,9 @@ void PersonnalXP::OnGiveXP(Player* player, uint32& amount, Unit* /*victim*/, uin
 {
     if (sPersonnalXpMode->GetModule().Enabled)
     {
-        if (PlayerXpRate* data = player->CustomData.Get<PlayerXpRate>("PersonnalXP"))
+        if (uint32 multiplier = player->GetPlayerSetting("PersonnalXP", 0).value)
         {
-            amount = static_cast<uint32>(std::round(static_cast<float>(amount) * data->XPRate));
+            amount = static_cast<uint32>(std::round(static_cast<float>(amount) * multiplier));
         }
     }
 }
@@ -84,7 +84,8 @@ public:
             AddGossipItemFor(player, GOSSIP_ICON_CHAT, name, 0, rates);
         };
 
-        for (auto index = 0; index < sPersonnalXpMode->GetModule().MaxRate; ++index)
+        addChallengeMenuItem(0, "Disable XP, set rate to 0");
+        for (auto index = 1; index < sPersonnalXpMode->GetModule().MaxRate; ++index)
         {
             addChallengeMenuItem(index, "Set my xp rates to " + std::to_string(index));
         }
@@ -95,11 +96,8 @@ public:
 
     bool OnGossipSelect(Player* player, Creature* /*entity*/, uint32 /*sender*/, uint32 action) override
     {
-        // avoid 0ed entry
-        action = action + 1;
-
         // safe protection
-        if (action > sPersonnalXpMode->GetModule().MaxRate || action < sPersonnalXpMode->GetModule().DefaultRate)
+        if (action != 0 && (action > sPersonnalXpMode->GetModule().MaxRate || action < sPersonnalXpMode->GetModule().DefaultRate))
         {
             return false;
         }
